@@ -55,6 +55,7 @@ fn host_status(code: &str) -> Result<omsi_net::ws::ServerInfo, String> {
             return Ok(i);
         }
     }
+    omsi_net::bridge::set_relay(&crate::settings::Settings::load().relay);
     match omsi_net::bridge::lookup_tunnel(c.session) {
         Some(url) => omsi_net::ws::query(&url, false),
         None => Err("the host did not answer".into()),

@@ -864,6 +864,7 @@ fn ws_join_target(url: &str) -> Result<String, String> {
 /// cannot be started is reported and the game runs on alone. A joining player waits
 /// briefly for the host's welcome, so that its map is loaded with the host's world.
 pub fn start(args: &Args) -> Option<LanSession> {
+    omsi_net::bridge::set_relay(&crate::settings::Settings::load().relay);
     let world = world_info(args);
     let session = match (&args.lan_host, &args.lan_join) {
         (Some(port), _) => {

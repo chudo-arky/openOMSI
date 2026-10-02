@@ -876,6 +876,13 @@ fn general_tab(ui: &mut Ui, s: &mut Value, dirty: &mut f32, out: &mut Outside, c
     if ui.button("s-upd-github", c.row(), "github.com/openOmsi-project/openOMSI", Some("open_in_new"), ButtonKind::Ghost) {
         crate::updater::open_url(crate::updater::REPO_URL);
     }
+    // the server two players meet through when they connect by code (an ntfy server)
+    c.section(ui, "Online");
+    let mut relay = get(s, "relay").as_str().unwrap_or("").to_string();
+    if ui.text_input("s-relay", c.row(), &mut relay, "Relay server (default https://ntfy.sh)", Some("dns")) {
+        s["relay"] = json!(relay.trim());
+        *dirty = 0.3;
+    }
     // every setting at once: here at the end, not first on the page where it was the
     // control one saw before any other
     c.section(ui, "Reset");
@@ -2301,7 +2308,7 @@ mod settings_tests {
         let general = vec![
             "s-lang", "set-machine_translation", "set-launcher_rest", "set-discord_status", "s-uiscale", "set-ui_scale_window", "s-uiop", "set-tooltips", "set-show_fps", "set-notes", "set-chat", "set-name_tags",
             "set-navigator", "set-nav_arrows", "set-nav_ai", "corner-top-left", "corner-top-right", "corner-bottom-left", "corner-bottom-right",
-            "set-update_check", "set-update_auto", "s-upd-check", "s-upd-github", "s-reset",
+            "set-update_check", "set-update_auto", "s-upd-check", "s-upd-github", "s-relay", "s-reset",
         ];
         vec![graphics, driving, camera, sound, gameplay, general]
     }

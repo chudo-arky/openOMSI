@@ -1687,6 +1687,7 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
     v["vr_desktop_mirror"] = json!(true);
     v["discord_status"] = json!(true);
     v["discord_app_id"] = json!("");
+    v["relay"] = json!("");
     // the launcher gives the graphics card up while a game runs (off: it stays drawn)
     v["launcher_rest"] = json!(true);
     // OMSI's own options
@@ -1736,6 +1737,7 @@ pub fn settings_from_text(text: Option<&str>) -> Value {
             "ctrl_off" => v[&k] = json!(val),
             "metar_station" => v[&k] = json!(val.chars().filter(|c| c.is_ascii_alphabetic()).take(4).collect::<String>().to_ascii_uppercase()),
             "discord_app_id" => v[&k] = json!(val),
+            "relay" => v[&k] = json!(val.trim()),
             "graphics_api" => v[&k] = json!(match val.to_ascii_lowercase().as_str() { "vulkan" => "vulkan", "dx12" => "dx12", "gl" => "gl", _ => "auto" }),
             "shadow_casters" => v[&k] = json!(if val.eq_ignore_ascii_case("omsi") { "omsi" } else { "all" }),
             "ctrl_deadzone" => v[&k] = json!(val.parse::<f64>().unwrap_or(0.0).clamp(0.0, 0.3)),
@@ -2067,6 +2069,8 @@ pub fn settings_to_text(v: &Value, old: Option<&str>) -> String {
     let vr_head_smoothing_ms = v.get("vr_head_smoothing_ms").and_then(|x| x.as_f64().or_else(|| x.as_str().and_then(|s| s.parse().ok()))).filter(|x| x.is_finite()).unwrap_or(0.0).clamp(0.0, 30.0);
     let vr_mirror_rate = v.get("vr_mirror_rate").and_then(|x| x.as_f64().or_else(|| x.as_str().and_then(|s| s.parse().ok()))).filter(|x| x.is_finite()).unwrap_or(16.0).clamp(-1.0, 360.0);
     let text = format!("{text}vr={}\nvr_scale={vr_scale}\nvr_head_smoothing_ms={vr_head_smoothing_ms}\nvr_mirror_rate={vr_mirror_rate}\nvr_desktop_mirror={}\ndiscord_status={}\nlauncher_rest={}\n", b("vr", false), b("vr_desktop_mirror", true), b("discord_status", true), b("launcher_rest", true));
+    let relay = v.get("relay").and_then(|x| x.as_str()).unwrap_or("").trim().replace(['\n', '\r'], "");
+    let text = format!("{text}relay={relay}\n");
     // what the page does not manage (keys of newer games, hand-written ones) stays as it
     // was in the file; other spellings of the keys just written go
     let mut text = text;
@@ -2696,6 +2700,16 @@ mod tests {
         let text = settings_to_text(&v, None);
         assert!(text.lines().any(|l| l == "anisotropy=16"), "{text}");
         assert_eq!(settings_from_text(Some("anisotropy=32\n"))["anisotropy"], 16);
+    }
+
+    #[test]
+    fn relay_setting_round_trips() {
+        assert_eq!(settings_from_text(None)["relay"], json!(""));
+        let mut v = settings_from_text(None);
+        v["relay"] = json!(" https://ntfy.example.org ");
+        let saved = settings_to_text(&v, Some("relay=https://old.example\n"));
+        assert_eq!(saved.lines().filter(|l| l.starts_with("relay=")).count(), 1);
+        assert_eq!(settings_from_text(Some(&saved))["relay"], json!("https://ntfy.example.org"));
     }
 
     #[test]

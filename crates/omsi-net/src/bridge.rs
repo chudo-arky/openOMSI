@@ -23,8 +23,29 @@ use std::time::{Duration, Instant};
 
 /// Public STUN servers (any one answering is enough).
 const STUN_SERVERS: &[&str] = &["stun.l.google.com:19302", "stun.cloudflare.com:3478", "stun1.l.google.com:19302"];
-/// The message relay the rendezvous goes through.
+/// The message relay the rendezvous goes through (an ntfy server), unless the player named
+/// another one (the `relay` setting, or `OMSI_RELAY`).
 const RELAY: &str = "https://ntfy.sh";
+static CUSTOM_RELAY: Mutex<String> = Mutex::new(String::new());
+
+/// Use the relay at `url` from now on (empty: the default one, or `OMSI_RELAY`). Both
+/// players of a session need the same relay to find each other.
+pub fn set_relay(url: &str) {
+    *CUSTOM_RELAY.lock().unwrap_or_else(|e| e.into_inner()) = url.to_string();
+}
+
+/// The relay's base address: the one set, else `OMSI_RELAY`, else ntfy.sh. Anything that is
+/// not an http(s) address is left out.
+fn relay() -> String {
+    let set = CUSTOM_RELAY.lock().unwrap_or_else(|e| e.into_inner()).clone();
+    let env = std::env::var("OMSI_RELAY").unwrap_or_default();
+    [set, env]
+        .iter()
+        .map(|u| u.trim().trim_end_matches('/'))
+        .find(|u| (u.starts_with("https://") || u.starts_with("http://")) && u.len() > 8)
+        .map(str::to_string)
+        .unwrap_or_else(|| RELAY.to_string())
+}
 const STUN_MAGIC: u32 = 0x2112_A442;
 /// How often the NAT mapping is refreshed (routers forget an idle UDP mapping after 30 s
 /// or more).
@@ -326,7 +347,7 @@ fn relay_loop(host: bool, session: u64, local: Vec<SocketAddr>, sh: &Arc<Mutex<S
         let ready = host || public.is_some() || started.elapsed() > Duration::from_secs(3);
         let waiting = last_poll.is_some_and(|t| t.elapsed() < backoff);
         if due && ready && !addrs.is_empty() && !waiting {
-            match agent.post(&format!("{RELAY}/{mine}")).set("Cache", "yes").send_string(&signed(session, &text)) {
+            match agent.post(&format!("{}/{mine}", relay())).set("Cache", "yes").send_string(&signed(session, &text)) {
                 Ok(_) => last_post = Some((Instant::now(), text.clone())),
                 Err(e) => {
                     sh.lock().unwrap_or_else(|e| e.into_inner()).note = format!("relay unreachable ({e})");
@@ -342,7 +363,7 @@ fn relay_loop(host: bool, session: u64, local: Vec<SocketAddr>, sh: &Arc<Mutex<S
         let poll_due = last_poll.is_none_or(|t| t.elapsed() >= every);
         let polled = if poll_due {
             last_poll = Some(Instant::now());
-            match agent.get(&format!("{RELAY}/{theirs}/json?poll=1&since={since}")).call() {
+            match agent.get(&format!("{}/{theirs}/json?poll=1&since={since}", relay())).call() {
                 Ok(r) => {
                     backoff = Duration::ZERO;
                     Some(r)
@@ -407,7 +428,7 @@ pub fn post_tunnel(session: u64, url: &str) {
         return;
     }
     let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(6)).user_agent("openOMSI").build();
-    if let Err(e) = agent.post(&format!("{RELAY}/{}", topic(session))).set("Cache", "yes").send_string(&signed(session, &format!("W 0 {url}"))) {
+    if let Err(e) = agent.post(&format!("{}/{}", relay(), topic(session))).set("Cache", "yes").send_string(&signed(session, &format!("W 0 {url}"))) {
         log::warn!("LAN bridge: the tunnel address could not be posted: {e}");
     }
 }
@@ -419,7 +440,7 @@ pub fn lookup_tunnel(session: u64) -> Option<String> {
         return None;
     }
     let agent = ureq::AgentBuilder::new().timeout(Duration::from_secs(8)).user_agent("openOMSI").build();
-    let body = agent.get(&format!("{RELAY}/{}/json?poll=1&since=6h", topic(session))).call().ok()?.into_string().ok()?;
+    let body = agent.get(&format!("{}/{}/json?poll=1&since=6h", relay(), topic(session))).call().ok()?.into_string().ok()?;
     body.lines()
         .filter_map(|l| json_field(l, "message"))
         .filter_map(|m| verified(session, &m).and_then(|t| t.strip_prefix("W 0 ")).map(|u| u.trim().to_string()))
@@ -564,6 +585,17 @@ mod tests {
         d.extend_from_slice(&[203 ^ m[0], 0 ^ m[1], 113 ^ m[2], 5 ^ m[3]]);
         assert!(is_bridge_packet(&d));
         assert_eq!(parse_mapped(&d), Some("203.0.113.5:40000".parse().unwrap()));
+    }
+
+    #[test]
+    fn the_relay_can_be_named() {
+        set_relay(" https://relay.example/ ");
+        assert_eq!(relay(), "https://relay.example");
+        // not an address: the default
+        set_relay("relay.example");
+        assert_eq!(relay(), RELAY);
+        set_relay("");
+        assert_eq!(relay(), RELAY);
     }
 
     #[test]

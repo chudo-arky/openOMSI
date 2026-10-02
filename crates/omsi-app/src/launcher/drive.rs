@@ -1070,7 +1070,9 @@ fn summary(l: &mut Launcher, side: Rect) {
         l.ui.text_in(&text, Rect::new(side.x + 24.0, y, pw - 24.0, 20.0), 12.5, Weight::Medium, WARN, Align::Left);
     }
     // on a server: which, and the way back to playing alone
-    if let Some(name) = joined_server_name(l) {
+    // (a code or address typed in the Multiplayer page is a server as well)
+    let typed = (l.state.choice.lan_mode == "join" && l.state.joined_server.is_none()).then(|| l.state.choice.lan_addr.clone()).filter(|a| !a.is_empty());
+    if let Some(name) = joined_server_name(l).or(typed) {
         y += 12.0;
         l.ui.icon("dns", Vec2::new(side.x + 9.0, y + 11.0), 16.0, OK);
         l.ui.text_in(&format!("Server: {name}"), Rect::new(side.x + 24.0, y, pw - 170.0, 22.0), 13.0, Weight::Medium, OK, Align::Left);

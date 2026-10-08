@@ -9178,6 +9178,10 @@ const OMSI_TILE_DIST: i32 = 1;
 /// the far view keeps every ordinary object. A large model whose entire geometry is far
 /// from its origin is also a stand-in: TH_Wald's forest cards sit over a kilometre from
 /// their placement, crossing local roads when their distant owner tile is loaded here.
+/// So is a large mesh drawn only as a backdrop, every material `[matl_noZwrite]` or
+/// `[matl_noZcheck]`: HafenCity's `3_BG_niederbaum` is a 1.6 km strip of the far bank of
+/// the Elbe that starts at its placement by the Niederbaumbruecke, and it stood across
+/// the road at the Landungsbruecken.
 fn stand_in_area(ot: &ObjectType, xf: &Mat4, pos: DVec3, tile: (i32, i32)) -> Option<[f64; 4]> {
     let ts = tile_size();
     let loaded = (2 * OMSI_TILE_DIST + 1) as f64 * ts;
@@ -9189,7 +9193,7 @@ fn stand_in_area(ot: &ObjectType, xf: &Mat4, pos: DVec3, tile: (i32, i32)) -> Op
         .map(|(m, _, _)| mesh_bounds(m, xf, pos))
         .reduce(|a, b| [a[0].min(b[0]), a[1].min(b[1]), a[2].max(b[2]), a[3].max(b[3])]);
     let wide = bounds.is_some_and(|b| (b[2] - b[0]).max(b[3] - b[1]) > 2.0 * loaded)
-        || ot.meshes.iter().any(|(m, _, _)| stand_in_mesh(m, xf, pos, loaded));
+        || ot.meshes.iter().any(|(m, _, defs)| stand_in_mesh(m, defs, xf, pos, loaded));
     if !wide {
         return None;
     }
@@ -9202,7 +9206,7 @@ fn stand_in_area(ot: &ObjectType, xf: &Mat4, pos: DVec3, tile: (i32, i32)) -> Op
     ])
 }
 
-fn stand_in_mesh(m: &MeshData, xf: &Mat4, pos: DVec3, loaded: f64) -> bool {
+fn stand_in_mesh(m: &MeshData, defs: &[MaterialDef], xf: &Mat4, pos: DVec3, loaded: f64) -> bool {
     let b = mesh_bounds(m, xf, pos);
     let width = (b[2] - b[0]).max(b[3] - b[1]);
     if width > 2.0 * loaded {
@@ -9210,6 +9214,10 @@ fn stand_in_mesh(m: &MeshData, xf: &Mat4, pos: DVec3, loaded: f64) -> bool {
     }
     if width <= loaded || m.positions.is_empty() {
         return false;
+    }
+    // a picture that never hides what is drawn after it, wherever it starts: a backdrop
+    if !defs.is_empty() && defs.iter().all(|d| d.no_z_write || d.no_z_check) {
+        return true;
     }
     // Measure the offset in the model's own frame, before heading rotates its bounds:
     // the world AABB of a diagonal card can include its origin although the card is
@@ -13481,16 +13489,16 @@ mod tests {
         let forest = rectangle(-1109.0, 693.0);
         for heading in [0.0, 45.0, 225.0] {
             let xf = object_rotation([heading, 0.0, 0.0]);
-            assert!(stand_in_mesh(&forest, &xf, DVec3::new(6242.0, 3348.0, 70.0), loaded),
+            assert!(stand_in_mesh(&forest, &[], &xf, DVec3::new(6242.0, 3348.0, 70.0), loaded),
                 "the distant forest at heading {heading} must not cover a road outside its owner tiles");
         }
         // Ordinary large geometry beside its origin still uses the full view distance.
-        assert!(!stand_in_mesh(&rectangle(0.0, 693.0), &Mat4::IDENTITY, DVec3::ZERO, loaded));
+        assert!(!stand_in_mesh(&rectangle(0.0, 693.0), &[], &Mat4::IDENTITY, DVec3::ZERO, loaded));
         // A small offset part is not enough to classify an object as a far backdrop.
-        assert!(!stand_in_mesh(&rectangle(-1109.0, 5.0), &Mat4::IDENTITY, DVec3::ZERO, loaded));
-        assert!(!stand_in_mesh(&forest, &Mat4::from_scale(glam::Vec3::splat(0.2)), DVec3::ZERO, loaded));
+        assert!(!stand_in_mesh(&rectangle(-1109.0, 5.0), &[], &Mat4::IDENTITY, DVec3::ZERO, loaded));
+        assert!(!stand_in_mesh(&forest, &[], &Mat4::from_scale(glam::Vec3::splat(0.2)), DVec3::ZERO, loaded));
         // Keep the existing whole-city stand-in rule, even for a centred model.
-        assert!(stand_in_mesh(&rectangle(0.0, 2000.0), &Mat4::IDENTITY, DVec3::ZERO, loaded));
+        assert!(stand_in_mesh(&rectangle(0.0, 2000.0), &[], &Mat4::IDENTITY, DVec3::ZERO, loaded));
     }
 
     #[test]
